@@ -4,7 +4,7 @@
 > **Target:** DC-1 (VulnHub)  
 > **Platform:** Linux / Drupal 7  
 > **Assessment Style:** Black-box / OSCP-style methodology  
-> **Author:** nevtech  
+> **Author:** Nevin Mademba 
 > **Disclaimer:** This repository documents a **legal, local CTF** completed in a controlled lab environment.  
 > Do **not** use these techniques on systems you do not own or have explicit permission to test.
 
